@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>평가 기록 및 그래프</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js/dist/umd/supabase.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="./js/supabase.js"></script>
+  <link rel="stylesheet" href="./styles/style.css">
+</head>
+<body>
+  <h1>평가 기록 및 그래프</h1>
+
+  <!-- 회원 검색 -->
+  <div class="search-container">
+    <input type="text" id="searchClient" placeholder="회원 이름을 입력하세요..." />
+    <button id="showClientList">회원 목록 보기</button>
+  </div>
+
+  <!-- 평가 기록 섹션 -->
+  <div id="historySection" class="hidden">
+    <h2>평가 기록</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>회원 이름</th>
+          <th>페르소나 유형</th>
+          <th>최근 평가 날짜</th>
+        </tr>
+      </thead>
+      <tbody id="historyTable">
+        <tr><td colspan="3">로딩 중...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 점수 변화 그래프 섹션 -->
+  <div id="scoreChartSection" class="hidden">
+    <h2>평가 점수 변화 그래프</h2>
+    <canvas id="scoreChart" width="800" height="400"></canvas>
+  </div>
+
+  <!-- 팝업 -->
+  <div id="overlay"></div>
+  <div class="popup" id="clientPopup">
+    <div class="popup-header">회원 목록</div>
+    <div class="popup-content" id="popupContent">
+      <!-- 회원 목록이 동적으로 추가됩니다 -->
+    </div>
+    <div class="popup-close" id="closePopup">닫기</div>
+  </div>
+
+  <!-- 관리 페이지로 돌아가기 버튼 -->
+  <button id="backToManagement" class="management-button">관리 페이지로 돌아가기</button>
+  <p style="text-align: center; margin-top: 10px;">
+    <a href="dashboard_home.html">관리 페이지로 바로가기</a>
+  </p>
+
+  <script>
+    window.addEventListener("DOMContentLoaded", async () => {
+      const session = await getSession();
+      if (!session) {
+        alert("로그인이 필요합니다.");
+        window.location.href = "index.html";
+        return;
+      }
+
+      const userId = session.user.id;
+
+      // Supabase에서 평가 기록 가져오기
+      const { data, error } = await supabase
+        .from("icpp_assessments")
+        .select("*")
+        .eq("user_id", userId)
+        .order("assessment_date", { ascending: true });
+
+      if (error) {
+        console.error("데이터 로드 실패:", error.message);
+        alert("데이터를 가져오는 중 문제가 발생했습니다.");
+        return;
+      }
+
+      const table = document.getElementById("historyTable");
+      const searchInput = document.getElementById("searchClient");
+      const showClientListButton = document.getElementById("showClientList");
+      const historySection = document.getElementById("historySection");
+      const scoreChartSection = document.getElementById("scoreChartSection");
+      const popup = document.getElementById("clientPopup");
+      const overlay = document.getElementById("overlay");
+      const popupContent = document.getElementById("popupContent");
+      const closePopup = document.getElementById("closePopup");
+
+      table.innerHTML = ""; // 기존 내용 초기화
+
+      // 데이터가 없는 경우 처리
+      if (!data || data.length === 0) {
+        console.warn("평가 기록이 없습니다.");
+        table.innerHTML = `<tr><td colspan="3">평가 기록이 없습니다.</td></tr>`;
+        return;
+      }
+
+      // 그룹화: client_name별로 데이터 묶기
+      const groupedData = data.reduce((acc, record) => {
+        const { client_name } = record;
+        if (!acc[client_name]) {
+          acc[client_name] = [];
+        }
+        acc[client_name].push(record);
+        return acc;
+      }, {});
+
+      // 팝업 열기
+      showClientListButton.addEventListener("click", () => {
+        popupContent.innerHTML = ""; // 기존 목록 초기화
+        Object.keys(groupedData).forEach(clientName => {
+          const clientDiv = document.createElement("div");
+          clientDiv.textContent = clientName;
+          clientDiv.classList.add("client-item");
+          clientDiv.addEventListener("click", () => {
+            searchInput.value = clientName;
+            popup.style.display = "none";
+            overlay.style.display = "none";
+            renderTable({ [clientName]: groupedData[clientName] });
+            drawChart(groupedData[clientName], clientName);
+            historySection.classList.remove("hidden");
+            scoreChartSection.classList.remove("hidden");
+          });
+          popupContent.appendChild(clientDiv);
+        });
+        popup.style.display = "block";
+        overlay.style.display = "block";
+      });
+
+      // 팝업 닫기
+      closePopup.addEventListener("click", () => {
+        popup.style.display = "none";
+        overlay.style.display = "none";
+      });
+
+      function renderTable(data) {
+        table.innerHTML = ""; // 기존 내용 초기화
+        for (const clientName in data) {
+          const records = data[clientName];
+          const latestRecord = records[records.length - 1]; // 최신 평가 데이터
+
+          const row = document.createElement("tr");
+          row.innerHTML = `
+            <td>${clientName}</td>
+            <td>${latestRecord.persona_type}</td>
+            <td>${new Date(latestRecord.assessment_date).toLocaleDateString()}</td>
+          `;
+          table.appendChild(row);
+        }
+      }
+
+      function drawChart(data, clientName) {
+        const ctx = document.getElementById("scoreChart").getContext("2d");
+        const labels = data.map(record => new Date(record.assessment_date).toLocaleDateString());
+        const cScores = data.map(record => record.c_score);
+        const fScores = data.map(record => record.f_score);
+        const kScores = data.map(record => record.k_score);
+        const aScores = data.map(record => record.a_score);
+        const sScores = data.map(record => record.s_score);
+        const pScores = data.map(record => record.p_score);
+
+        const chartTitle = `${clientName}의 점수 변화`;
+
+        if (window.myChart) {
+          window.myChart.destroy(); // 기존 그래프 제거
+        }
+
+        window.myChart = new Chart(ctx, {
+          type: "line",
+          data: {
+            labels: labels,
+            datasets: [
+              {
+                label: "Catastrophizing (C)",
+                data: cScores,
+                borderColor: "rgba(255, 99, 132, 1)",
+                backgroundColor: "rgba(255, 99, 132, 0.2)",
+                fill: false,
+              },
+              {
+                label: "Fear-Avoidance (F)",
+                data: fScores,
+                borderColor: "rgba(54, 162, 235, 1)",
+                backgroundColor: "rgba(54, 162, 235, 0.2)",
+                fill: false,
+              },
+              {
+                label: "Kinesiophobia (K)",
+                data: kScores,
+                borderColor: "rgba(255, 206, 86, 1)",
+                backgroundColor: "rgba(255, 206, 86, 0.2)",
+                fill: false,
+              },
+              {
+                label: "Anxiety/Depression (A)",
+                data: aScores,
+                borderColor: "rgba(75, 192, 192, 1)",
+                backgroundColor: "rgba(75, 192, 192, 0.2)",
+                fill: false,
+              },
+              {
+                label: "Self-Efficacy (S)",
+                data: sScores,
+                borderColor: "rgba(153, 102, 255, 1)",
+                backgroundColor: "rgba(153, 102, 255, 0.2)",
+                fill: false,
+              },
+              {
+                label: "Acceptance (P)",
+                data: pScores,
+                borderColor: "rgba(255, 159, 64, 1)",
+                backgroundColor: "rgba(255, 159, 64, 0.2)",
+                fill: false,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            plugins: {
+              legend: {
+                position: "top",
+              },
+              title: {
+                display: true,
+                text: chartTitle,
+              },
+            },
+            scales: {
+              y: {
+                beginAtZero: true,
+              },
+            },
+          },
+        });
+      }
+    });
+
+    // 관리 페이지로 돌아가기 버튼 이벤트
+    document.getElementById("backToManagement").addEventListener("click", () => {
+      window.location.href = "dashboard_home.html"; // 관리 페이지로 이동
+    });
+  </script>
+</body>
+</html>

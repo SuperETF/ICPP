@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>ICPP 결과</title>
+  <link rel="stylesheet" href="./styles/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js/dist/umd/supabase.min.js"></script>
+  <script src="./js/supabase.js"></script>
+  <script src="./js/icpp.js"></script>
+</head>
+<body class="results">
+  <h1>ICPP 결과</h1>
+  <div class="result-container">
+    <h2>회원 이름: <span id="clientName">Loading...</span></h2>
+    <h2>결과 요약</h2>
+    <p id="personaType">페르소나 유형: <span>Loading...</span></p>
+    <h3>세부 점수</h3>
+    <ul>
+      <li>Catastrophizing (C): <span id="cScore">Loading...</span></li>
+      <li>Fear-Avoidance (F): <span id="fScore">Loading...</span></li>
+      <li>Kinesiophobia (K): <span id="kScore">Loading...</span></li>
+      <li>Anxiety/Depression (A): <span id="aScore">Loading...</span></li>
+      <li>Self-Efficacy (S): <span id="sScore">Loading...</span></li>
+      <li>Acceptance (P): <span id="pScore">Loading...</span></li>
+    </ul>
+  </div>
+
+  <!-- 운동 접근 가이드 -->
+  <div class="advice-container" id="exerciseGuide">
+    <h3>운동 접근 가이드</h3>
+    <p id="detailedAdvice">Loading...</p>
+  </div>
+
+  <!-- 버튼 컨테이너 -->
+  <div class="button-container">
+    <button id="viewHistory">평가 기록 보기</button>
+    <button id="backToDashboard">관리 페이지로 돌아가기</button>
+  </div>
+
+  <script>
+    async function fetchResults() {
+      const session = await getSession();
+      if (!session) {
+        alert("로그인이 필요합니다.");
+        window.location.href = "index.html";
+        return;
+      }
+
+      // URL 파라미터에서 회원 이름 가져오기
+      const urlParams = new URLSearchParams(window.location.search);
+      const clientName = urlParams.get("client");
+
+      // 회원 이름 표시
+      if (clientName) {
+        document.getElementById("clientName").textContent = clientName;
+      } else {
+        document.getElementById("clientName").textContent = "이름 없음";
+      }
+
+      // 가장 최근 평가 결과 가져오기
+      const { data, error } = await supabase
+        .from("icpp_assessments")
+        .select("*")
+        .eq("user_id", session.user.id)
+        .eq("client_name", clientName) // 특정 회원의 평가 데이터 가져오기
+        .order("assessment_date", { ascending: false })
+        .limit(1);
+
+      if (error || !data.length) {
+        console.error("결과 조회 실패:", error?.message || "결과 없음");
+        alert("결과를 불러올 수 없습니다.");
+        return;
+      }
+
+      const latestResult = data[0];
+      displayResults(latestResult);
+    }
+
+    function displayResults(result) {
+      document.getElementById("personaType").innerHTML = `<strong>${result.persona_type}</strong>`;
+      document.getElementById("cScore").textContent = result.c_score;
+      document.getElementById("fScore").textContent = result.f_score;
+      document.getElementById("kScore").textContent = result.k_score;
+      document.getElementById("aScore").textContent = result.a_score;
+      document.getElementById("sScore").textContent = result.s_score;
+      document.getElementById("pScore").textContent = result.p_score;
+
+      // 운동 접근 가이드 추가
+      const detailedAdvice = personaExerciseAdvice[result.persona_type] || "운동 가이드가 준비되지 않았습니다.";
+      document.getElementById("detailedAdvice").textContent = detailedAdvice;
+    }
+
+    // 평가 기록 보기 버튼 이벤트
+    document.getElementById("viewHistory").addEventListener("click", () => {
+      window.location.href = "evaluation_history.html"; // 평가 기록 페이지로 이동
+    });
+
+    // 관리 페이지로 돌아가기 버튼 이벤트
+    document.getElementById("backToDashboard").addEventListener("click", () => {
+      window.location.href = "dashboard_home.html"; // 관리 페이지로 이동
+    });
+
+    fetchResults();
+  </script>
+</body>
+</html>
